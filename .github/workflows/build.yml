@@ -81,13 +81,14 @@ jobs:
           if-no-files-found: error
           retention-days: 90
 
-      # 滚动 Release：公开直链，不用登录也能下载（只从 main 发布）
-      - name: Publish to rolling release
-        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+      # 滚动 Release：公开直链，不用登录也能下载
+      # main → latest；miuix 分支 → miuix-preview
+      - name: Publish preview release
+        if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/miuix')
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: latest
-          name: 最新构建（debug）
+          tag_name: ${{ github.ref == 'refs/heads/main' && 'latest' || 'miuix-preview' }}
+          name: ${{ github.ref == 'refs/heads/main' && '最新构建（debug）' || 'MiuiX 预览构建' }}
           prerelease: true
           make_latest: false
           files: dist/*.apk
