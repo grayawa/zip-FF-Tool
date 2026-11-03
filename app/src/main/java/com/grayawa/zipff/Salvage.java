@@ -89,11 +89,23 @@ public final class Salvage {
                 int extraLen = u16(hdr, 24);
 
                 // 合理性检查：不像本地文件头就当作误命中的字节序列，继续向后找
-                if (nameLen == 0 || nameLen > nameBuf.length || (method != 0 && method != 8)) {
+                int version = u16(hdr, 0);
+                if (nameLen == 0 || nameLen > 512 || version < 10 || version > 100) {
                     continue;
                 }
                 if (!buf.readFully(nameBuf, nameLen)) {
                     break;
+                }
+                // 名字里不该有控制字符：视频/图片里偶然出现的 PK\3\4 大多是这种
+                boolean saneName = true;
+                for (int i = 0; i < nameLen; i++) {
+                    if ((nameBuf[i] & 0xff) < 0x20) {
+                        saneName = false;
+                        break;
+                    }
+                }
+                if (!saneName) {
+                    continue;
                 }
                 byte[] extra = new byte[extraLen];
                 if (extraLen > 0 && !buf.readFully(extra, extraLen)) {
@@ -127,7 +139,16 @@ public final class Salvage {
                     skipData(buf, flags, csize);
                     res.skipped++;
                     if (listener != null) {
-                        listener.onEntryDone(path, 0, false, "条目已加密，无法解出");
+                        listener.onEntryDone(path, 0, false,
+                                method == 99 ? "条目是 WinZip AES 加密，需要密码" : "条目已加密，需要密码");
+                    }
+                    continue;
+                }
+                if (method != 0 && method != 8) {
+                    skipData(buf, flags, csize);
+                    res.skipped++;
+                    if (listener != null) {
+                        listener.onEntryDone(path, 0, false, "不支持的压缩方式 (method=" + method + ")");
                     }
                     continue;
                 }
