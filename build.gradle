@@ -1,7 +1,5 @@
 // 顶层构建脚本：只声明插件版本，具体配置在 app/build.gradle
-// MiuiX 0.9.4 要求 compileSdk 37 / Kotlin 2.4.20 / Compose 1.12，对应 AGP 9.x
+// MiuiX 0.9.4 要求 compileSdk 37；AGP 9 自带 Kotlin 支持，不再单独应用 kotlin-android 插件
 plugins {
     id 'com.android.application' version '9.5.0' apply false
-    id 'org.jetbrains.kotlin.android' version '2.4.20' apply false
-    id 'org.jetbrains.kotlin.plugin.compose' version '2.4.20' apply false
 }
