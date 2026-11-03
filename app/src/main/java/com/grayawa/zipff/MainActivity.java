@@ -2,6 +2,7 @@ package com.grayawa.zipff;
 
 import android.app.Activity;
 import android.content.Intent;
+import android.content.SharedPreferences;
 import android.database.Cursor;
 import android.net.Uri;
 import android.os.Bundle;
@@ -49,10 +50,18 @@ public final class MainActivity extends Activity {
     private volatile boolean running;
     private volatile boolean cancelRequested;
 
+    private SharedPreferences prefs;
+
+    private static final String PREF = "zipff";
+    private static final String KEY_TREE = "tree_uri";
+    private static final String KEY_FILES = "file_uris";
+
     @Override
     protected void onCreate(Bundle state) {
         super.onCreate(state);
+        prefs = getSharedPreferences(PREF, MODE_PRIVATE);
         setContentView(buildUi());
+        restoreState();
         handleIntent(getIntent());
     }
 
@@ -176,6 +185,10 @@ public final class MainActivity extends Activity {
         i.putExtra(Intent.EXTRA_ALLOW_MULTIPLE, true);
         i.putExtra(Intent.EXTRA_MIME_TYPES, new String[]{
                 "application/zip", "application/x-zip-compressed", "application/octet-stream"});
+        Uri start = initialDir();
+        if (start != null) {
+            i.putExtra(DocumentsContract.EXTRA_INITIAL_URI, start);
+        }
         startActivityForResult(i, REQ_FILES);
     }
 
@@ -184,7 +197,56 @@ public final class MainActivity extends Activity {
         i.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION
                 | Intent.FLAG_GRANT_WRITE_URI_PERMISSION
                 | Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION);
+        Uri start = initialDir();
+        if (start != null) {
+            i.putExtra(DocumentsContract.EXTRA_INITIAL_URI, start);
+        }
         startActivityForResult(i, REQ_TREE);
+    }
+
+    /** 让选择器直接打开上次用过的目录，省得每次翻。 */
+    private Uri initialDir() {
+        if (treeUri != null) {
+            try {
+                return DocumentsContract.buildDocumentUriUsingTree(
+                        treeUri, DocumentsContract.getTreeDocumentId(treeUri));
+            } catch (Exception ignored) {
+                // 退回默认位置
+            }
+        }
+        return null;
+    }
+
+    private void saveState() {
+        SharedPreferences.Editor e = prefs.edit();
+        e.putString(KEY_TREE, treeUri == null ? "" : treeUri.toString());
+        StringBuilder sb = new StringBuilder();
+        for (Uri u : files) {
+            sb.append(u).append('\n');
+        }
+        e.putString(KEY_FILES, sb.toString());
+        e.apply();
+    }
+
+    private void restoreState() {
+        try {
+            String t = prefs.getString(KEY_TREE, "");
+            if (t != null && !t.isEmpty()) {
+                treeUri = Uri.parse(t);
+                treeView.setText("输出到: " + describeTree(treeUri));
+            }
+            String f = prefs.getString(KEY_FILES, "");
+            if (f != null && !f.isEmpty()) {
+                for (String line : f.split("\n")) {
+                    if (!line.trim().isEmpty()) {
+                        files.add(Uri.parse(line.trim()));
+                    }
+                }
+                refreshFiles();
+            }
+        } catch (Exception ignored) {
+            // 读不出来就当没存过
+        }
     }
 
     @Override
@@ -203,6 +265,7 @@ public final class MainActivity extends Activity {
                 addFile(data.getData());
             }
             refreshFiles();
+            saveState();
         } else if (req == REQ_TREE) {
             treeUri = data.getData();
             if (treeUri != null) {
@@ -213,6 +276,7 @@ public final class MainActivity extends Activity {
                     // 某些系统不允许持久化，当前会话仍可写
                 }
                 treeView.setText("输出到: " + describeTree(treeUri));
+                saveState();
             }
         }
     }
