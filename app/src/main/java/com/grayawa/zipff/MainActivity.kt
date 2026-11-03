@@ -94,9 +94,15 @@ class MainActivity : ComponentActivity() {
                     .padding(horizontal = 16.dp, vertical = 12.dp),
                 verticalArrangement = Arrangement.spacedBy(10.dp),
             ) {
-                Text("zip - FF 修复并解压", fontSize = 22.sp, fontWeight = FontWeight.Bold)
+                Text(
+                    "zip - FF 修复并解压",
+                    color = MiuixTheme.colorScheme.onBackground,
+                    fontSize = 22.sp,
+                    fontWeight = FontWeight.Bold,
+                )
                 Text(
                     "批量选 zip → 按 zip -FF 的方式抢救坏包 → 解压到指定文件夹",
+                    color = MiuixTheme.colorScheme.onBackground,
                     fontSize = 13.sp,
                 )
 
@@ -134,7 +140,11 @@ class MainActivity : ComponentActivity() {
                 }
 
                 if (state.status.isNotEmpty()) {
-                    Text(state.status, fontSize = 13.sp)
+                    Text(
+                        state.status,
+                        color = MiuixTheme.colorScheme.onBackground,
+                        fontSize = 13.sp,
+                    )
                 }
 
                 Card(modifier = Modifier
