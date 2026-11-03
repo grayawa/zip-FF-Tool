@@ -2,7 +2,7 @@ name: Build APK
 
 on:
   push:
-    branches: [ main ]
+    branches: [ main, miuix ]
     paths-ignore:
       - '**.md'
   pull_request:
@@ -43,13 +43,32 @@ jobs:
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v4
         with:
-          gradle-version: '8.7'
+          gradle-version: '9.5'
 
       - name: Build
-        run: gradle assembleDebug --no-daemon --stacktrace
+        id: build
+        run: |
+          set -o pipefail
+          gradle assembleDebug --no-daemon --stacktrace 2>&1 | tee build.log
+
+      # 构建失败时把关键报错写进 run summary，方便在手机上直接看
+      - name: Dump failure log
+        if: failure()
+        run: |
+          {
+            echo '### 构建失败'
+            echo '```'
+            grep -nE "^(e: |error:|FAILURE|\* What went wrong|Caused by:|> )" build.log | head -60 || true
+            echo '```'
+            echo '### 日志尾部'
+            echo '```'
+            tail -50 build.log || true
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Collect APK
         id: apk
+        if: success()
         run: |
           mkdir -p dist
           VER=$(grep -oP 'versionName "\K[^"]+' app/build.gradle)
@@ -60,6 +79,7 @@ jobs:
           ls -lh dist
 
       - name: Upload APK artifact
+        if: success()
         uses: actions/upload-artifact@v4
         with:
           name: zip-FF-Tool-apk
@@ -67,8 +87,7 @@ jobs:
           if-no-files-found: error
           retention-days: 90
 
-      # 滚动 Release：公开直链，不用登录也能下载
-      # https://github.com/grayawa/zip-FF-Tool/releases/download/latest/zip-FF-Tool-latest.apk
+      # 滚动 Release：公开直链，不用登录也能下载（只从 main 发布）
       - name: Publish to rolling release
         if: github.event_name == 'push' && github.ref == 'refs/heads/main'
         uses: softprops/action-gh-release@v2
