@@ -322,8 +322,7 @@ public final class MainActivity extends Activity {
             final int[] shown = {0};
             Salvage.Result r;
             try {
-                Uri dir = root.ensureDirPublic(stem);
-                SafTreeSink sink = new SafTreeSink(getContentResolver(), dir);
+                SafTreeSink sink = root.subdir(stem);
                 Salvage.Listener listener = new Salvage.Listener() {
                     @Override
                     public boolean isCancelled() {
