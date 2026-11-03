@@ -74,13 +74,11 @@ class MainActivity : ComponentActivity() {
         refreshState()
     }
 
-    override fun onNewIntent(intent: Intent?) {
+    override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
-        intent?.let {
-            setIntent(it)
-            handleIntent(it)
-            refreshState()
-        }
+        setIntent(intent)
+        handleIntent(intent)
+        refreshState()
     }
 
     // ---------- Miuix 界面 ----------
