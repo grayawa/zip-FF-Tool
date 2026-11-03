@@ -20,7 +20,7 @@ public final class TestSalvage {
 
         Salvage.Sink sink = new Salvage.Sink() {
             @Override
-            public OutputStream open(String path) throws IOException {
+            public OutputStream openEntry(String path) throws IOException {
                 File f = new File(outDir, path);
                 File p = f.getParentFile();
                 if (p != null) {

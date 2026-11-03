@@ -23,7 +23,7 @@ public final class Salvage {
 
     /** 输出目标，由调用方决定写到哪里（Android 上是 SAF 目录，本地测试是文件系统）。 */
     public interface Sink {
-        OutputStream open(String path) throws IOException;
+        OutputStream openEntry(String path) throws IOException;
 
         void delete(String path);
     }
@@ -161,7 +161,7 @@ public final class Salvage {
 
     private boolean extractDeflate(Buf buf, String path, long crcHeader, long usize,
                                    int flags, EntryOutcome eo) throws IOException {
-        OutputStream out = sink.open(path);
+        OutputStream out = sink.openEntry(path);
         CRC32 crc = new CRC32();
         boolean good = true;
         int lastFed = 0;
@@ -229,7 +229,7 @@ public final class Salvage {
             eo.reason = "存储模式条目长度未知";
             return false;
         }
-        OutputStream out = sink.open(path);
+        OutputStream out = sink.openEntry(path);
         CRC32 crc = new CRC32();
         try {
             long left = csize;

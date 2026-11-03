@@ -43,7 +43,7 @@ final class SafTreeSink implements Salvage.Sink {
     }
 
     @Override
-    public OutputStream open(String path) throws IOException {
+    public OutputStream openEntry(String path) throws IOException {
         int idx = path.lastIndexOf('/');
         String parentId = idx < 0 ? rootDocId : ensureDir(path.substring(0, idx));
         String name = idx < 0 ? path : path.substring(idx + 1);
