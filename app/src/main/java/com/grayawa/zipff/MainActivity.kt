@@ -22,6 +22,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.systemBarsPadding
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.text.input.rememberTextFieldState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -34,6 +35,7 @@ import androidx.compose.ui.unit.sp
 import top.yukonga.miuix.kmp.basic.Button
 import top.yukonga.miuix.kmp.basic.Card
 import top.yukonga.miuix.kmp.basic.Text
+import top.yukonga.miuix.kmp.basic.TextField
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 import top.yukonga.miuix.kmp.theme.darkColorScheme
 import top.yukonga.miuix.kmp.theme.lightColorScheme
@@ -66,6 +68,10 @@ class MainActivity : ComponentActivity() {
     @Volatile
     private var cancelRequested = false
 
+    /** 当前任务使用的密码（null 表示不解密）。 */
+    @Volatile
+    private var jobPassword: ByteArray? = null
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         prefs = getSharedPreferences("zipff", MODE_PRIVATE)
@@ -86,6 +92,7 @@ class MainActivity : ComponentActivity() {
 
     @Composable
     private fun AppUi() {
+        val passwordState = rememberTextFieldState()
         MiuixTheme(colors = if (isSystemInDarkTheme()) darkColorScheme() else lightColorScheme()) {
             Column(
                 modifier = Modifier
@@ -124,12 +131,18 @@ class MainActivity : ComponentActivity() {
                             state.outLabel?.let { "输出到: $it" } ?: "未选择输出文件夹",
                             fontSize = 13.sp,
                         )
+                        TextField(
+                            state = passwordState,
+                            modifier = Modifier.fillMaxWidth(),
+                            label = "解压密码（留空表示不解密）",
+                            useLabelAsPlaceholder = true,
+                        )
                         Button(
                             onClick = {
                                 if (state.running) {
                                     cancelRequested = true
                                 } else {
-                                    startJob()
+                                    startJob(passwordState.text.toString())
                                 }
                             },
                             modifier = Modifier.fillMaxWidth(),
@@ -322,7 +335,7 @@ class MainActivity : ComponentActivity() {
 
     // ---------- 任务 ----------
 
-    private fun startJob() {
+    private fun startJob(passwordText: String) {
         if (picked.isEmpty()) {
             toast("先选至少一个 zip 文件")
             return
@@ -333,6 +346,7 @@ class MainActivity : ComponentActivity() {
             return
         }
         cancelRequested = false
+        jobPassword = passwordText.takeIf { it.isNotBlank() }?.toByteArray(Charsets.UTF_8)
         logBuf.setLength(0)
         state = state.copy(running = true, status = "正在处理…", log = "")
         val batch = picked.toList()
@@ -382,7 +396,7 @@ class MainActivity : ComponentActivity() {
                 }
                 contentResolver.openInputStream(uri).use { input ->
                     if (input == null) throw IOException("打不开文件")
-                    result = Salvage(sink, listener).run(input as InputStream)
+                    result = Salvage(sink, listener, jobPassword).run(input as InputStream)
                 }
             } catch (e: Exception) {
                 log("  失败: $e")

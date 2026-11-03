@@ -53,7 +53,8 @@ PY
 echo "== 2. 编译引擎 =="
 mkdir -p "$WORK/classes"
 javac -encoding UTF-8 -d "$WORK/classes" \
-  "$ROOT/app/src/main/java/com/grayawa/zipff/Salvage.java" \
+  "$ROOT"/app/src/main/java/com/grayawa/zipff/Salvage.java \
+  "$ROOT"/app/src/main/java/com/grayawa/zipff/ZipCryptoSupport.java \
   "$ROOT/tools/TestSalvage.java"
 echo "  编译通过"
 
@@ -64,7 +65,43 @@ for f in "$ZIPS"/*.zip; do
   java -cp "$WORK/classes" TestSalvage "$f" "$OUT/$name" 2>&1 | tail -6
 done
 
-echo "== 4. 校验内容 =="
+echo "== 4. 加密包（有密码就解密） =="
+PASS=selftest123
+if command -v 7z >/dev/null 2>&1; then
+  (cd "$SRC" && 7z a -tzip -p"$PASS" -mem=AES256 "$ZIPS/07-AES256.zip" f1.bin sub >/dev/null 2>&1) \
+    && echo "  造 AES-256 包成功"
+else
+  echo "  跳过 AES（没有 7z）"
+fi
+if command -v zip >/dev/null 2>&1; then
+  (cd "$SRC" && zip -q -P "$PASS" "$ZIPS/08-ZipCrypto.zip" f1.bin sub/中文名.txt) \
+    && echo "  造 ZipCrypto 包成功"
+fi
+
+for f in "$ZIPS"/07-AES256.zip "$ZIPS"/08-ZipCrypto.zip; do
+  [ -f "$f" ] || continue
+  name=$(basename "$f" .zip)
+  echo "--- $name 正确密码"
+  rm -rf "$OUT/$name"
+  java -cp "$WORK/classes" TestSalvage "$f" "$OUT/$name" "$PASS" 2>&1 | tail -3
+  echo "--- $name 错误密码"
+  rm -rf "$OUT/$name-bad"
+  java -cp "$WORK/classes" TestSalvage "$f" "$OUT/$name-bad" wrong-password 2>&1 | tail -2
+done
+
+echo "--- 加密包解出的内容必须与原文件一致"
+for case in 07-AES256 08-ZipCrypto; do
+  [ -d "$OUT/$case" ] || { echo "  $case 没有输出目录"; exit 1; }
+  cmp -s "$OUT/$case/f1.bin" "$SRC/f1.bin" \
+    && echo "  $case: f1.bin 一致" || { echo "  $case: f1.bin 不一致"; exit 1; }
+  cmp -s "$OUT/$case/sub/中文名.txt" "$SRC/sub/中文名.txt" \
+    && echo "  $case: 中文名.txt 一致" || { echo "  $case: 中文名.txt 不一致"; exit 1; }
+  if [ -n "$(ls -A "$OUT/$case-bad" 2>/dev/null)" ]; then
+    echo "  $case: 错误密码竟然写出了文件"; exit 1
+  fi
+done
+
+echo "== 5. 校验内容 =="
 python3 - "$SRC" "$OUT" <<'PY'
 import os, sys
 src, out = sys.argv[1], sys.argv[2]

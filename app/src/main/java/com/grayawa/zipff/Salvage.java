@@ -8,9 +8,14 @@ import java.nio.charset.CharacterCodingException;
 import java.nio.charset.Charset;
 import java.nio.charset.CodingErrorAction;
 import java.nio.charset.StandardCharsets;
+import java.security.GeneralSecurityException;
+import java.util.Arrays;
 import java.util.zip.CRC32;
 import java.util.zip.DataFormatException;
 import java.util.zip.Inflater;
+
+import javax.crypto.Mac;
+import javax.crypto.spec.SecretKeySpec;
 
 /**
  * 顺序扫描式 zip 抢救解压。
@@ -54,6 +59,7 @@ public final class Salvage {
 
     private final Sink sink;
     private final Listener listener;
+    private final byte[] password;
 
     private final byte[] chunk = new byte[1 << 16];
     private final byte[] obuf = new byte[1 << 16];
@@ -62,8 +68,13 @@ public final class Salvage {
     private final Inflater inflater = new Inflater(true);
 
     public Salvage(Sink sink, Listener listener) {
+        this(sink, listener, null);
+    }
+
+    public Salvage(Sink sink, Listener listener, byte[] password) {
         this.sink = sink;
         this.listener = listener;
+        this.password = password;
     }
 
     public Result run(InputStream raw) throws IOException {
@@ -136,11 +147,27 @@ public final class Salvage {
                     continue;
                 }
                 if ((flags & 1) != 0) {
-                    skipData(buf, flags, csize);
-                    res.skipped++;
+                    if (password == null || password.length == 0) {
+                        skipData(buf, flags, csize);
+                        res.skipped++;
+                        if (listener != null) {
+                            listener.onEntryDone(path, 0, false, method == 99
+                                    ? "WinZip AES 加密，填密码可尝试解密"
+                                    : "已加密，填密码可尝试解密");
+                        }
+                        continue;
+                    }
+                    EntryOutcome enc = new EntryOutcome();
+                    boolean encOk = extractEncrypted(buf, path, flags, method, extra, extraLen, crcHeader, csize, enc);
+                    if (!encOk) {
+                        sink.delete(path);
+                        res.damaged++;
+                    } else {
+                        res.ok++;
+                        res.bytesOut += enc.written;
+                    }
                     if (listener != null) {
-                        listener.onEntryDone(path, 0, false,
-                                method == 99 ? "条目是 WinZip AES 加密，需要密码" : "条目已加密，需要密码");
+                        listener.onEntryDone(path, enc.written, encOk, enc.reason);
                     }
                     continue;
                 }
@@ -289,6 +316,197 @@ public final class Salvage {
             }
         }
         return true;
+    }
+
+    /** 解密并解出加密条目：传统 ZipCrypto 或 WinZip AES。 */
+    private boolean extractEncrypted(Buf buf, String path, int flags, int method, byte[] extra, int extraLen,
+                                     long crcHeader, long csize, EntryOutcome eo) throws IOException {
+        if (csize <= 0 || csize == 0xFFFFFFFFL) {
+            eo.reason = "加密条目长度未知";
+            return false;
+        }
+        long consumed = 0;
+        try {
+            int[] aes = method == 99 ? ZipCryptoSupport.parseAesExtra(extra, extraLen) : null;
+            if (method == 99 && aes == null) {
+                eo.reason = "AES 条目缺少扩展信息";
+                return false;
+            }
+
+            ZipCryptoSupport.Transformer transform = null;
+            byte[] hmacKey = null;
+            int realMethod;
+            long payloadLen;
+
+            if (aes != null) {
+                int strength = aes[1];
+                realMethod = aes[2];
+                int saltLen = 4 * (strength + 1);
+                int keyLen = 8 * (strength + 1);
+                if (csize < saltLen + 12L) {
+                    eo.reason = "AES 数据不完整";
+                    return false;
+                }
+                byte[] salt = new byte[saltLen];
+                if (!buf.readFully(salt, saltLen)) {
+                    eo.reason = "数据提前结束";
+                    return false;
+                }
+                byte[] verifier = new byte[2];
+                if (!buf.readFully(verifier, 2)) {
+                    eo.reason = "数据提前结束";
+                    return false;
+                }
+                consumed += saltLen + 2L;
+
+                byte[] dk;
+                try {
+                    dk = ZipCryptoSupport.pbkdf2Sha1(password, salt, 1000, 2 * keyLen + 2);
+                    transform = new ZipCryptoSupport.AesCtr(Arrays.copyOfRange(dk, 0, keyLen));
+                } catch (GeneralSecurityException e) {
+                    eo.reason = "设备不支持 AES: " + e.getMessage();
+                    return false;
+                }
+                if (dk[2 * keyLen] != verifier[0] || dk[2 * keyLen + 1] != verifier[1]) {
+                    eo.reason = "密码错误";
+                    return false;
+                }
+                hmacKey = Arrays.copyOfRange(dk, keyLen, 2 * keyLen);
+                payloadLen = csize - saltLen - 2L - 10L;
+            } else {
+                realMethod = method;
+                if (csize < 12) {
+                    eo.reason = "加密数据不完整";
+                    return false;
+                }
+                ZipCryptoSupport.ZipCrypto zc = new ZipCryptoSupport.ZipCrypto(password);
+                byte[] head = new byte[12];
+                if (!buf.readFully(head, 12)) {
+                    eo.reason = "数据提前结束";
+                    return false;
+                }
+                consumed += 12;
+                for (int i = 0; i < 12; i++) {
+                    head[i] = (byte) zc.decrypt(head[i] & 0xff);
+                }
+                // 校验字节：有数据描述符时是高字节的 DOS 时间，否则是 CRC 最高字节
+                int expected = (flags & 8) != 0 ? (hdr[7] & 0xff) : (int) ((crcHeader >>> 24) & 0xff);
+                if ((head[11] & 0xff) != expected) {
+                    eo.reason = "密码错误";
+                    return false;
+                }
+                transform = zc;
+                payloadLen = csize - 12;
+            }
+
+            Mac mac = null;
+            if (hmacKey != null) {
+                try {
+                    mac = Mac.getInstance("HmacSHA1");
+                    mac.init(new SecretKeySpec(hmacKey, "HmacSHA1"));
+                } catch (GeneralSecurityException e) {
+                    eo.reason = "设备不支持 HMAC-SHA1: " + e.getMessage();
+                    return false;
+                }
+            }
+
+            OutputStream out = sink.openEntry(path);
+            CRC32 crc = new CRC32();
+            Inflater inf = realMethod == 8 ? new Inflater(true) : null;
+            byte[] inBuf = new byte[1 << 16];
+            byte[] outBuf = new byte[1 << 16];
+            long left = payloadLen;
+            boolean good = true;
+            try {
+                while (left > 0 && good) {
+                    if (listener != null && listener.isCancelled()) {
+                        eo.reason = "已取消";
+                        good = false;
+                        break;
+                    }
+                    int want = (int) Math.min(left, inBuf.length);
+                    int n = buf.read(inBuf, 0, want);
+                    if (n <= 0) {
+                        eo.reason = "数据提前结束";
+                        good = false;
+                        break;
+                    }
+                    left -= n;
+                    consumed += n;
+                    if (mac != null) {
+                        mac.update(inBuf, 0, n);
+                    }
+                    try {
+                        transform.transform(inBuf, n);
+                    } catch (GeneralSecurityException e) {
+                        eo.reason = "解密失败: " + e.getMessage();
+                        good = false;
+                        break;
+                    }
+                    if (inf == null) {
+                        out.write(inBuf, 0, n);
+                        crc.update(inBuf, 0, n);
+                        eo.written += n;
+                    } else {
+                        if (inf.needsInput()) {
+                            inf.setInput(inBuf, 0, n);
+                        }
+                        while (true) {
+                            int k;
+                            try {
+                                k = inf.inflate(outBuf, 0, outBuf.length);
+                            } catch (DataFormatException e) {
+                                eo.reason = "解密后压缩数据损坏";
+                                good = false;
+                                break;
+                            }
+                            if (k > 0) {
+                                out.write(outBuf, 0, k);
+                                crc.update(outBuf, 0, k);
+                                eo.written += k;
+                            } else if (inf.finished()) {
+                                break;
+                            } else if (inf.needsInput()) {
+                                break;
+                            } else {
+                                eo.reason = "解压停滞";
+                                good = false;
+                                break;
+                            }
+                        }
+                    }
+                }
+            } finally {
+                out.close();
+                if (inf != null) {
+                    inf.end();
+                }
+            }
+
+            if (good && mac != null) {
+                byte[] auth = new byte[10];
+                if (!buf.readFully(auth, 10)) {
+                    eo.reason = "数据提前结束";
+                    good = false;
+                } else {
+                    consumed += 10;
+                    byte[] actual = mac.doFinal();
+                    if (!ZipCryptoSupport.samePrefix(actual, auth, 10)) {
+                        eo.reason = "HMAC 校验失败（密码错误或数据损坏）";
+                        good = false;
+                    }
+                }
+            }
+            if (good && (flags & 8) == 0 && crcHeader != 0 && crc.getValue() != crcHeader) {
+                eo.reason = "CRC 校验失败";
+                good = false;
+            }
+            return good;
+        } finally {
+            if (consumed < csize) {
+                skipData(buf, 0, csize - consumed);
+            }
+        }
     }
 
     private void skipData(Buf buf, int flags, long csize) throws IOException {

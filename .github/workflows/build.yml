@@ -21,6 +21,9 @@ jobs:
         with:
           distribution: temurin
           java-version: '17'
+      - name: Install 7z (用于生成 AES 测试包)
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq p7zip-full
+
       - name: Run self-test
         run: sh tools/selftest.sh
 

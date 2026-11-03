@@ -5,15 +5,18 @@ import java.io.FileInputStream;
 import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.OutputStream;
+import java.nio.charset.StandardCharsets;
 
 /** 本地验证用：对真实坏包跑一遍抢救逻辑，和 zip -FF 的结果对比。 */
 public final class TestSalvage {
 
     public static void main(String[] args) throws Exception {
         if (args.length < 2) {
-            System.err.println("用法: TestSalvage <zip> <输出目录>");
+            System.err.println("用法: TestSalvage <zip> <输出目录> [密码]");
             System.exit(2);
         }
+        byte[] pw = args.length > 2 && !args[2].isEmpty()
+                ? args[2].getBytes(StandardCharsets.UTF_8) : null;
         File in = new File(args[0]);
         File outDir = new File(args[1]);
         outDir.mkdirs();
@@ -56,7 +59,7 @@ public final class TestSalvage {
         long t0 = System.currentTimeMillis();
         Salvage.Result r;
         try (FileInputStream fis = new FileInputStream(in)) {
-            r = new Salvage(sink, listener).run(fis);
+            r = new Salvage(sink, listener, pw).run(fis);
         }
         System.out.println(in.getName() + " -> " + r.summary()
                 + "  用时 " + (System.currentTimeMillis() - t0) + "ms");
