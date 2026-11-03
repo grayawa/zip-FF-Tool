@@ -1,6 +1,5 @@
 package com.grayawa.zipff
 
-import android.app.Activity
 import android.content.Intent
 import android.content.SharedPreferences
 import android.database.Cursor
@@ -11,6 +10,8 @@ import android.os.Looper
 import android.provider.DocumentsContract
 import android.provider.OpenableColumns
 import android.widget.Toast
+import androidx.activity.ComponentActivity
+import androidx.activity.compose.setContent
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -26,7 +27,6 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.platform.ComposeView
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -51,7 +51,7 @@ private data class UiState(
     val log: String = "",
 )
 
-class MainActivity : Activity() {
+class MainActivity : ComponentActivity() {
 
     private var state by mutableStateOf(UiState())
     private var treeUri: Uri? = null
@@ -70,7 +70,7 @@ class MainActivity : Activity() {
         prefs = getSharedPreferences("zipff", MODE_PRIVATE)
         restoreState()
         handleIntent(intent)
-        setContentView(ComposeView(this).apply { setContent { AppUi() } })
+        setContent { AppUi() }
         refreshState()
     }
 

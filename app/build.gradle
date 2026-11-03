@@ -32,5 +32,6 @@ android {
 }
 
 dependencies {
+    implementation 'androidx.activity:activity-compose:1.13.0'
     implementation 'top.yukonga.miuix.kmp:miuix-ui:0.9.4'
 }
