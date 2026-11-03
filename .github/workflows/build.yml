@@ -25,7 +25,7 @@ jobs:
         run: sh tools/selftest.sh
 
   build:
-    name: Build debug APK
+    name: Build APK
     runs-on: ubuntu-latest
     needs: engine-test
     permissions:
@@ -45,31 +45,47 @@ jobs:
         with:
           gradle-version: '9.8.2'
 
+      # 配了签名 Secrets → 打 release 包；否则退回 debug 包（也能装，只是用 debug key 签名）
       - name: Build
         id: build
+        env:
+          KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
+          KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
         run: |
           set -o pipefail
-          if gradle assembleDebug --no-daemon --stacktrace 2>&1 | tee build.log; then
+          if [ -n "${KEYSTORE_BASE64:-}" ]; then
+            mkdir -p build
+            printf '%s' "$KEYSTORE_BASE64" | base64 -d > build/keystore.jks
+            TASK=assembleRelease
+          else
+            TASK=assembleDebug
+          fi
+          echo "构建任务: $TASK"
+          if gradle "$TASK" --no-daemon --stacktrace 2>&1 | tee build.log; then
             echo "构建成功"
           else
-            echo "--- 报错相关 ---"
             grep -nE "error:|AAPT|Caused by|What went wrong|Execution failed" build.log \
               | tail -20 | while IFS= read -r line; do echo "::error::$line"; done
-            echo "--- 日志尾部 60 行 ---"
             tail -60 build.log | while IFS= read -r line; do echo "::error::$line"; done
             exit 1
           fi
 
-      - name: Collect APK
-        id: apk
+      - name: Collect and verify APK
         if: success()
         run: |
           mkdir -p dist
           VER=$(grep -oP 'versionName "\K[^"]+' app/build.gradle)
-          NAME="zip-FF-Tool-${VER}-${GITHUB_SHA::7}.apk"
-          cp app/build/outputs/apk/debug/app-debug.apk "dist/$NAME"
-          cp app/build/outputs/apk/debug/app-debug.apk "dist/zip-FF-Tool-latest.apk"
-          echo "name=$NAME" >> "$GITHUB_OUTPUT"
+          APK=$(ls app/build/outputs/apk/release/*.apk 2>/dev/null | head -1 || true)
+          if [ -z "$APK" ]; then
+            APK=$(ls app/build/outputs/apk/debug/*.apk | head -1)
+          fi
+          cp "$APK" "dist/zip-FF-Tool-${VER}-${GITHUB_SHA::7}.apk"
+          cp "$APK" "dist/zip-FF-Tool-latest.apk"
+          echo "来源: $APK"
+          APKSIGNER=$(ls "$ANDROID_HOME"/build-tools/*/apksigner | tail -1)
+          "$APKSIGNER" verify --print-certs "dist/zip-FF-Tool-latest.apk" | head -6
           ls -lh dist
 
       - name: Upload APK artifact
@@ -83,12 +99,12 @@ jobs:
 
       # 滚动 Release：公开直链，不用登录也能下载
       # main → latest；miuix 分支 → miuix-preview
-      - name: Publish preview release
+      - name: Publish release
         if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/miuix')
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ github.ref == 'refs/heads/main' && 'latest' || 'miuix-preview' }}
-          name: ${{ github.ref == 'refs/heads/main' && '最新构建（debug）' || 'MiuiX 预览构建' }}
+          name: ${{ github.ref == 'refs/heads/main' && '最新构建' || 'MiuiX 预览构建' }}
           prerelease: true
           make_latest: false
           files: dist/*.apk

@@ -1,6 +1,6 @@
 # zip-FF-Tool
 
-一个安卓 App：**批量选择 zip 文件 → 按 `zip -FF` 的方式抢救坏包 → 解压到指定文件夹**。
+一个安卓 App：**批量选择文件 → 按 `zip -FF` 的方式抢救 → 解压到指定文件夹**。
 界面用 [MiuiX](https://github.com/compose-miuix-ui/miuix)（Compose Multiplatform 的 MIUI/HyperOS 风格组件库）实现。
 
 安卓系统里没有 `zip` 命令，所以抢救逻辑用 Java 重写（`Salvage.java`），行为和
@@ -16,16 +16,20 @@ Info-ZIP 的 `zip -FF`（"salvage what can"）一致：
 ## 用法
 
 1. 装 APK，打开 App；
-2. ① 选择 ZIP 文件（可多选）；
+2. ① 选择文件（可多选）；
 3. ② 选择输出文件夹（SAF 目录授权，不需要存储权限）；
 4. ③ 开始修复并解压。
 
-每个 zip 解压到 `输出文件夹/<原文件名去掉 .zip>/`，目录结构保持原样；
+**输入不要求是 `.zip`**：只认文件内容（是不是 zip 结构），不看扩展名。
+`zip` / `apk` / `jar` / `docx` / `cbz` / 分卷 `.zip.001` / 没有扩展名的数据包都可以直接选，
+选择器也不再按 MIME 过滤。
+
+每个文件解压到 `输出文件夹/<去掉分卷号和扩展名的文件名>/`，目录结构保持原样；
 日志区逐条列出救回 / 损坏的条目，最后给出汇总。
 
 - 上次选的文件和输出目录会被记住，下次打开直接点 ③ 即可；
 - 输出目录的选择器会直接打开上次的目录；
-- 也可以从别的 App「用其他应用打开」或「分享」一个 zip 给本 App。
+- 也可以从别的 App「用其他应用打开」或「分享」一个文件给本 App。
 
 ## 构建
 
@@ -33,20 +37,35 @@ Info-ZIP 的 `zip -FF`（"salvage what can"）一致：
 
 1. `engine-test`：用 Python 造好包（截断、头部损坏、中间损坏、数据描述符、垃圾文件），
    编译引擎跑一遍并校验内容逐字节一致；
-2. `build`：Gradle 打 debug APK，产物上传到 Artifacts，同时发布到滚动 Release：
+2. `build`：Gradle 打包 → 校验签名指纹 → 上传 Artifacts → 发布到滚动 Release：
 
 ```
 https://github.com/grayawa/zip-FF-Tool/releases/download/latest/zip-FF-Tool-latest.apk
 ```
 
+### release 签名
+
+CI 里配了这四个 Secrets 就打 **release 包**（否则退回 debug 包）：
+
+| Secret | 内容 |
+| --- | --- |
+| `KEYSTORE_BASE64` | keystore 的 base64（`base64 -w0 zipff-release.jks`） |
+| `KEYSTORE_PASSWORD` | keystore 口令 |
+| `KEY_ALIAS` | 别名（本项目是 `zipff`） |
+| `KEY_PASSWORD` | key 口令 |
+
+`app/build.gradle` 只在检测到 `KEYSTORE_BASE64` 时才注册 `signingConfigs.release` 并让
+release 用它签名，所以本地没有这些环境变量也能正常 `assembleDebug`。
+
 工具链：AGP 9.5.0 / Gradle 9.8.2 / Kotlin 2.4.20 / compileSdk 37 / minSdk 26。
-（MiuiX 0.9.4 要求 `compileSdk 37`；AGP 9 自带 Kotlin 支持，只需要额外应用 Compose 编译器插件。）
+（MiuiX 0.9.4 要求 `compileSdk 37`；AGP 9 自带 Kotlin 支持，只需额外应用 Compose 编译器插件。）
 
 本地构建：
 
 ```sh
-gradle assembleDebug
-# 产物 app/build/outputs/apk/debug/app-debug.apk
+gradle assembleDebug      # app/build/outputs/apk/debug/app-debug.apk
+KEYSTORE_BASE64=... KEYSTORE_PASSWORD=... KEY_ALIAS=zipff KEY_PASSWORD=... \
+  gradle assembleRelease  # 需要先放好 build/keystore.jks
 ```
 
 引擎自检（只需要 JDK + python3，不需要 Android SDK）：

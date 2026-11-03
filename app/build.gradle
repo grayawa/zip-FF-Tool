@@ -3,6 +3,10 @@ plugins {
     id 'org.jetbrains.kotlin.plugin.compose'
 }
 
+// release 签名：CI 里由 Secrets 提供 keystore（base64）与口令；
+// 本地没配这些环境变量时，release 就是未签名包，debug 仍可直接装。
+def hasReleaseKey = (System.getenv("KEYSTORE_BASE64") ?: "").trim() != ""
+
 android {
     namespace 'com.grayawa.zipff'
     compileSdk 37
@@ -11,17 +15,34 @@ android {
         applicationId "com.grayawa.zipff"
         minSdk 26
         targetSdk 37
-        versionCode 2
-        versionName "2.0"
+        versionCode 3
+        versionName "2.1"
     }
 
     buildFeatures {
         compose true
     }
 
+    signingConfigs {
+        if (hasReleaseKey) {
+            release {
+                storeFile file("${rootDir}/build/keystore.jks")
+                storePassword System.getenv("KEYSTORE_PASSWORD")
+                keyAlias System.getenv("KEY_ALIAS")
+                keyPassword System.getenv("KEY_PASSWORD")
+            }
+        }
+    }
+
     buildTypes {
         release {
             minifyEnabled false
+            if (hasReleaseKey) {
+                signingConfig signingConfigs.release
+            }
+        }
+        debug {
+            // debug 仍用默认 debug key，方便本地直接跑
         }
     }
 

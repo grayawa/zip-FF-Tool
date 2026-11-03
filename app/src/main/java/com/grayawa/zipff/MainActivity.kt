@@ -101,7 +101,7 @@ class MainActivity : ComponentActivity() {
                     fontWeight = FontWeight.Bold,
                 )
                 Text(
-                    "批量选 zip → 按 zip -FF 的方式抢救坏包 → 解压到指定文件夹",
+                    "批量选文件 → 按 zip -FF 的方式抢救 → 解压到指定文件夹",
                     color = MiuixTheme.colorScheme.onBackground,
                     fontSize = 13.sp,
                 )
@@ -114,7 +114,7 @@ class MainActivity : ComponentActivity() {
                         verticalArrangement = Arrangement.spacedBy(8.dp),
                     ) {
                         Button(onClick = { pickFiles() }, modifier = Modifier.fillMaxWidth()) {
-                            Text("① 选择 ZIP 文件（可多选）")
+                            Text("① 选择文件（可多选）")
                         }
                         Text(filesLabel(), fontSize = 13.sp)
                         Button(onClick = { pickTree() }, modifier = Modifier.fillMaxWidth()) {
@@ -177,10 +177,6 @@ class MainActivity : ComponentActivity() {
             addCategory(Intent.CATEGORY_OPENABLE)
             type = "*/*"
             putExtra(Intent.EXTRA_ALLOW_MULTIPLE, true)
-            putExtra(
-                Intent.EXTRA_MIME_TYPES,
-                arrayOf("application/zip", "application/x-zip-compressed", "application/octet-stream"),
-            )
             initialDir()?.let { putExtra(DocumentsContract.EXTRA_INITIAL_URI, it) }
         }
         @Suppress("DEPRECATION")
@@ -358,7 +354,7 @@ class MainActivity : ComponentActivity() {
             val result: Salvage.Result
             try {
                 val root = SafTreeSink(contentResolver, tree)
-                val sink = root.subdir(stripZip(name))
+                val sink = root.subdir(outputName(name))
                 val listener = object : Salvage.Listener {
                     override fun isCancelled(): Boolean = cancelRequested
 
@@ -417,12 +413,14 @@ class MainActivity : ComponentActivity() {
         ui.post { state = state.copy(running = false, status = statusText) }
     }
 
-    private fun stripZip(name: String): String {
-        if (name.lowercase(Locale.ROOT).endsWith(".zip") && name.length > 4) {
-            return name.substring(0, name.length - 4)
-        }
-        val dot = name.lastIndexOf('.')
-        return if (dot > 0) name.substring(0, dot) else name
+    /** 输出目录名：去掉分卷号（.001）和常见扩展名，避免出现 "xxx.zip" 目录。 */
+    private fun outputName(name: String): String {
+        var s = name
+        s = Regex("\\.[0-9]{3}$").replace(s, "")
+        s = Regex("(?i)\\.(zip|zipx|jar|apk|cbz|epub|xapk)$").replace(s, "")
+        val dot = s.lastIndexOf('.')
+        if (dot > 0) s = s.substring(0, dot)
+        return if (s.isBlank()) name else s
     }
 
     private fun human(bytes: Long): String = when {
