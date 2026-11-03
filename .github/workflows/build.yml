@@ -52,11 +52,11 @@ jobs:
           if gradle assembleDebug --no-daemon --stacktrace 2>&1 | tee build.log; then
             echo "构建成功"
           else
-            echo "--- 关键报错 ---"
-            grep -E "^(e: |error:|FAILURE|\* What went wrong|Caused by:|> |Could not|Unresolved reference|Execution failed)" build.log \
-              | head -12 | while IFS= read -r line; do echo "::error::$line"; done
-            echo "--- 日志尾部 ---"
-            tail -25 build.log | while IFS= read -r line; do echo "::error::$line"; done
+            echo "--- 报错相关 ---"
+            grep -nE "error:|AAPT|Caused by|What went wrong|Execution failed" build.log \
+              | tail -20 | while IFS= read -r line; do echo "::error::$line"; done
+            echo "--- 日志尾部 60 行 ---"
+            tail -60 build.log | while IFS= read -r line; do echo "::error::$line"; done
             exit 1
           fi
 
