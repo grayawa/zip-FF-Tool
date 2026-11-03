@@ -177,7 +177,6 @@ class MainActivity : ComponentActivity() {
             addCategory(Intent.CATEGORY_OPENABLE)
             type = "*/*"
             putExtra(Intent.EXTRA_ALLOW_MULTIPLE, true)
-            initialDir()?.let { putExtra(DocumentsContract.EXTRA_INITIAL_URI, it) }
         }
         @Suppress("DEPRECATION")
         startActivityForResult(i, REQ_FILES)
@@ -272,6 +271,14 @@ class MainActivity : ComponentActivity() {
                 }
         } catch (_: Exception) {
             // 退回路径
+        }
+        if (name.isNullOrBlank()) {
+            name = try {
+                // 外部 provider 的 documentId 形如 "primary:Download/a/b.zip"
+                DocumentsContract.getDocumentId(uri).substringAfterLast(':').substringAfterLast('/')
+            } catch (_: Exception) {
+                null
+            }
         }
         return name ?: uri.lastPathSegment ?: uri.toString()
     }
@@ -415,12 +422,13 @@ class MainActivity : ComponentActivity() {
 
     /** 输出目录名：去掉分卷号（.001）和常见扩展名，避免出现 "xxx.zip" 目录。 */
     private fun outputName(name: String): String {
-        var s = name
+        var s = name.substringAfterLast('/').substringAfterLast(':')
         s = Regex("\\.[0-9]{3}$").replace(s, "")
         s = Regex("(?i)\\.(zip|zipx|jar|apk|cbz|epub|xapk)$").replace(s, "")
         val dot = s.lastIndexOf('.')
         if (dot > 0) s = s.substring(0, dot)
-        return if (s.isBlank()) name else s
+        s = Regex("""[/\\:*?"<>|]""").replace(s, "_").trim()
+        return if (s.isBlank()) "output" else s
     }
 
     private fun human(bytes: Long): String = when {
