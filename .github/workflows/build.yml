@@ -49,22 +49,16 @@ jobs:
         id: build
         run: |
           set -o pipefail
-          gradle assembleDebug --no-daemon --stacktrace 2>&1 | tee build.log
-
-      # 构建失败时把关键报错写进 run summary，方便在手机上直接看
-      - name: Dump failure log
-        if: failure()
-        run: |
-          {
-            echo '### 构建失败'
-            echo '```'
-            grep -nE "^(e: |error:|FAILURE|\* What went wrong|Caused by:|> )" build.log | head -60 || true
-            echo '```'
-            echo '### 日志尾部'
-            echo '```'
-            tail -50 build.log || true
-            echo '```'
-          } >> "$GITHUB_STEP_SUMMARY"
+          if gradle assembleDebug --no-daemon --stacktrace 2>&1 | tee build.log; then
+            echo "构建成功"
+          else
+            echo "--- 关键报错 ---"
+            grep -E "^(e: |error:|FAILURE|\* What went wrong|Caused by:|> |Could not|Unresolved reference|Execution failed)" build.log \
+              | head -12 | while IFS= read -r line; do echo "::error::$line"; done
+            echo "--- 日志尾部 ---"
+            tail -25 build.log | while IFS= read -r line; do echo "::error::$line"; done
+            exit 1
+          fi
 
       - name: Collect APK
         id: apk
